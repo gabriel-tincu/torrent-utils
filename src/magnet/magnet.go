@@ -55,6 +55,14 @@ func ParseMagnet(content []byte) (*Magnet, error) {
 			response.Length = val
 		case acceptableSourceKey:
 			response.AcceptableSource = v[0]
+		case topicKey:
+			response.Topic = v[0]
+		case exactSourceKey:
+			response.ExactSource = v[0]
+		case manifestTopicKey:
+			response.ManifestTopic = v[0]
+		case keywordTopicKey:
+			response.KeywordTopic = v[0]
 		}
 	}
 	return response, nil
