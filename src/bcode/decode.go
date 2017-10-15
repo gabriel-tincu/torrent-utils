@@ -10,6 +10,7 @@ const (
 	endChar       = 'e'
 	listStartChar = 'l'
 	dictStartChar = 'd'
+	colonChar     = ':'
 )
 
 var digits = map[byte]bool{
@@ -85,13 +86,13 @@ func decodeDict(buff []byte) (result Bencoded, remaining []byte, err error) {
 	var list []interface{}
 	var dic Bencoded
 	var integer int
-	var bits string
+	var bits []byte
 	buff = buff[1:]
 	for {
 		if buff[0] == endChar {
 			return result, buff[1:], nil
 		}
-		key, buff, err = decodeByte(buff)
+		key, buff, err = decodeString(buff)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -134,7 +135,7 @@ func decodeDict(buff []byte) (result Bencoded, remaining []byte, err error) {
 	}
 }
 
-func decodeByte(buff []byte) (result string, remaining []byte, err error) {
+func decodeString(buff []byte) (result string, remaining []byte, err error) {
 	size := []byte{}
 	index := 0
 	if !digits[buff[index]] {
@@ -142,7 +143,7 @@ func decodeByte(buff []byte) (result string, remaining []byte, err error) {
 	}
 
 	for {
-		if buff[index] != ':' {
+		if buff[index] != colonChar {
 			size = append(size, buff[index])
 			index++
 		} else {
@@ -156,6 +157,31 @@ func decodeByte(buff []byte) (result string, remaining []byte, err error) {
 		return "", nil, err
 	}
 	return string(buff[index : index+byteSize]), buff[index+byteSize:], nil
+}
+
+
+func decodeByte(buff []byte) (result []byte, remaining []byte, err error) {
+	size := []byte{}
+	index := 0
+	if !digits[buff[index]] {
+		return nil, nil, fmt.Errorf("decoded char should be a number or colon :%c", buff[index])
+	}
+
+	for {
+		if buff[index] != colonChar {
+			size = append(size, buff[index])
+			index++
+		} else {
+			index++
+			break
+		}
+	}
+	sizeStr := string(size)
+	byteSize, err := strconv.Atoi(sizeStr)
+	if err != nil {
+		return nil, nil, err
+	}
+	return buff[index : index+byteSize], buff[index+byteSize:], nil
 }
 
 func decodeInt(buff []byte) (result int, remaining []byte, err error) {
@@ -177,7 +203,116 @@ func decodeInt(buff []byte) (result int, remaining []byte, err error) {
 	return result, buff[index:], err
 }
 
-func BDecode(bits []byte) (Bencoded, error) {
+func Marshal(data Bencoded) ([]byte, error) {
+	result := []byte{}
+	return encodeDict(data, result)
+}
+
+func encodeDict(data Bencoded, bits []byte) ([]byte, error) {
+	var err error
+	bits = append(bits, dictStartChar)
+	for key, val := range data {
+		bits, err = encodeBytes([]byte(key), bits)
+		if err != nil {
+			return nil, err
+		}
+		switch v := val.(type) {
+		case int:
+			bits, err = encodeInt(v, bits)
+			if err != nil {
+				return nil, err
+			}
+		case string:
+			bits, err = encodeBytes([]byte(v), bits)
+			if err != nil {
+				return nil, err
+			}
+		case []byte:
+			bits, err = encodeBytes(v, bits)
+			if err != nil {
+				return nil, err
+			}
+		case []interface{}:
+			bits, err = encodeList(v, bits)
+			if err != nil {
+				return nil, err
+			}
+		case map[string]interface{}:
+			bits, err = encodeDict(v, bits)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("data in a dict should be one of <<int>> <<string>> <<list>> <<dict>>:\n%T", v)
+		}
+	}
+	bits = append(bits, endChar)
+	return bits, nil
+
+}
+
+func encodeList(data []interface{}, bits []byte) ([]byte, error) {
+	var err error
+	bits = append(bits, listStartChar)
+	for _, val := range data {
+		switch v := val.(type) {
+		case int:
+			bits, err = encodeInt(v, bits)
+			if err != nil {
+				return nil, err
+			}
+		case string:
+			bits, err = encodeBytes([]byte(v), bits)
+			if err != nil {
+				return nil, err
+			}
+		case []byte:
+			bits, err = encodeBytes(v, bits)
+			if err != nil {
+				return nil, err
+			}
+		case []interface{}:
+			bits, err = encodeList(v, bits)
+			if err != nil {
+				return nil, err
+			}
+		case map[string]interface{}:
+			bits, err = encodeDict(v, bits)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("data in a list should be one of <<int>> <<string>> <<list>> <<dict>> :\n%T", v)
+		}
+	}
+	bits = append(bits, endChar)
+	return bits, nil
+}
+
+func encodeInt(data int, bits []byte) ([]byte, error) {
+	bits = append(bits, intStartChar)
+	bits = append(bits, []byte(strconv.Itoa(data))...)
+	bits = append(bits, endChar)
+	return bits, nil
+}
+
+func encodeString(data string, bits []byte) (string, error) {
+	sizeStr := strconv.Itoa(len(data))
+	bits = append(bits, []byte(sizeStr)...)
+	bits = append(bits, colonChar)
+	bits = append(bits, []byte(data)...)
+	return string(bits), nil
+}
+
+func encodeBytes(data []byte, bits []byte) ([]byte, error) {
+	sizeStr := strconv.Itoa(len(data))
+	bits = append(bits, []byte(sizeStr)...)
+	bits = append(bits, colonChar)
+	bits = append(bits, data...)
+	return bits, nil
+}
+
+func Unmarshal(bits []byte) (Bencoded, error) {
 	result, remaining, err := decodeDict(bits)
 	if err != nil {
 		return nil, err
