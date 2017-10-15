@@ -1,11 +1,30 @@
-package bencode
+package bcode
 
 import (
 	"fmt"
-	"io"
-	"io/ioutil"
 	"strconv"
 )
+
+const (
+	intStartChar  = 'i'
+	endChar       = 'e'
+	listStartChar = 'l'
+	dictStartChar = 'd'
+)
+
+var digits = map[byte]bool{
+	'1': true,
+	'2': true,
+	'3': true,
+	'4': true,
+	'5': true,
+	'6': true,
+	'7': true,
+	'8': true,
+	'9': true,
+	'0': true,
+	':': true,
+}
 
 type Bencoded map[string]interface{}
 
@@ -13,9 +32,12 @@ func decodeList(buff []byte) (result []interface{}, remaining []byte, err error)
 	if rune(buff[0]) != listStartChar {
 		return nil, nil, fmt.Errorf("start character for list should be %c", listStartChar)
 	}
-	next := rune(buff[1])
 	buff = buff[1:]
+	next := buff[0]
 	for {
+		if buff[0] == endChar {
+			return result, buff[1:], nil
+		}
 		switch next {
 		case intStartChar:
 			resultInt, remaining, err := decodeInt(buff)
@@ -41,21 +63,24 @@ func decodeList(buff []byte) (result []interface{}, remaining []byte, err error)
 		case endChar:
 			return result, buff[1:], nil
 		default:
+			if !digits[next] {
+				return nil, nil, fmt.Errorf("should receive an integer")
+			}
 			resultBytes, remaining, err := decodeByte(buff)
 			if err != nil {
 				return nil, nil, err
 			}
 			buff = remaining
 			result = append(result, resultBytes)
-
 		}
 	}
 }
 
 func decodeDict(buff []byte) (result Bencoded, remaining []byte, err error) {
-	if rune(buff[0]) != dictStartChar {
-		return nil, nil, fmt.Errorf("start character for list should be %c", dictStartChar)
+	if buff[0] != dictStartChar {
+		return nil, nil, fmt.Errorf("start character for dict should be %c", dictStartChar)
 	}
+	result = make(map[string]interface{})
 	var key string
 	var list []interface{}
 	var dic Bencoded
@@ -63,11 +88,14 @@ func decodeDict(buff []byte) (result Bencoded, remaining []byte, err error) {
 	var bits string
 	buff = buff[1:]
 	for {
+		if buff[0] == endChar {
+			return result, buff[1:], nil
+		}
 		key, buff, err = decodeByte(buff)
 		if err != nil {
 			return nil, nil, err
 		}
-		next, buff := buff[0], buff[1:]
+		next := buff[0]
 		switch next {
 		case listStartChar:
 			list, buff, err = decodeList(buff)
@@ -75,26 +103,33 @@ func decodeDict(buff []byte) (result Bencoded, remaining []byte, err error) {
 				return nil, nil, err
 			}
 			result[key] = list
+			continue
 		case intStartChar:
 			integer, buff, err = decodeInt(buff)
 			if err != nil {
 				return nil, nil, err
 			}
 			result[key] = integer
+			continue
 		case dictStartChar:
 			dic, buff, err = decodeDict(buff)
 			if err != nil {
 				return nil, nil, err
 			}
 			result[key] = dic
+			continue
 		case endChar:
 			return result, buff[1:], nil
 		default:
+			if !digits[next] {
+				return nil, nil, fmt.Errorf("should receive an integer")
+			}
 			bits, buff, err = decodeByte(buff)
 			if err != nil {
 				return nil, nil, err
 			}
 			result[key] = bits
+			continue
 		}
 	}
 }
@@ -102,20 +137,25 @@ func decodeDict(buff []byte) (result Bencoded, remaining []byte, err error) {
 func decodeByte(buff []byte) (result string, remaining []byte, err error) {
 	size := []byte{}
 	index := 0
+	if !digits[buff[index]] {
+		return "", nil, fmt.Errorf("decoded char should be a number or colon :%c", buff[index])
+	}
+
 	for {
-		if rune(result[index]) != ':' {
-			size = append(size, result[index])
+		if buff[index] != ':' {
+			size = append(size, buff[index])
 			index++
 		} else {
 			index++
 			break
 		}
 	}
-	byteSize, err := strconv.Atoi(string(size))
+	sizeStr := string(size)
+	byteSize, err := strconv.Atoi(sizeStr)
 	if err != nil {
 		return "", nil, err
 	}
-	return string(buff[index : index+byteSize]), buff[:index+byteSize], nil
+	return string(buff[index : index+byteSize]), buff[index+byteSize:], nil
 }
 
 func decodeInt(buff []byte) (result int, remaining []byte, err error) {
@@ -130,18 +170,14 @@ func decodeInt(buff []byte) (result int, remaining []byte, err error) {
 			index++
 			break
 		}
-		index++
 		chars = append(chars, buff[index])
+		index++
 	}
 	result, err = strconv.Atoi(string(chars))
 	return result, buff[index:], err
 }
 
-func BDecode(reader io.Reader) (*Bencoded, error) {
-	bits, err := ioutil.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
+func BDecode(bits []byte) (Bencoded, error) {
 	result, remaining, err := decodeDict(bits)
 	if err != nil {
 		return nil, err
@@ -149,5 +185,5 @@ func BDecode(reader io.Reader) (*Bencoded, error) {
 	if len(remaining) != 0 {
 		return nil, fmt.Errorf("remaining buffer should be empty")
 	}
-	return &result, nil
+	return result, nil
 }
