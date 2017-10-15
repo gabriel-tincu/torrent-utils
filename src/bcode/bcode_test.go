@@ -1,10 +1,9 @@
 package bcode
 
 import (
+	"io/ioutil"
 	"runtime/debug"
 	"testing"
-	"io/ioutil"
-	"fmt"
 )
 
 func TestDecodeInt(t *testing.T) {
@@ -26,9 +25,20 @@ func TestBDecode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ , err = BDecode(bits)
+	_, err = BDecode(bits)
 	if err != nil {
 		debug.PrintStack()
 		t.Fatal(err)
+	}
+}
+
+func BenchmarkBDecode(b *testing.B) {
+	bits, err := ioutil.ReadFile("data/test.torrent")
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for i := 0; i < b.N; i++ {
+		_, _ = BDecode(bits)
 	}
 }
