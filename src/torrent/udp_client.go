@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"sync"
 	"time"
+	"net/url"
 )
 
 const (
@@ -16,22 +18,26 @@ const (
 	readDeadline  = time.Second * 2
 )
 
-func getConnectBytes() (response []byte, connectionId uint32) {
-	response = make([]byte, 16)
-	binary.BigEndian.PutUint64(response, magicNumber)
-	binary.BigEndian.PutUint32(response[8:12], connectAction)
-	connectionId = rand.Uint32()
-	binary.BigEndian.PutUint32(response[12:], connectionId)
-	return
+type Transaction []byte
+
+type TrackerState struct {
+	Host                  string
+	Transaction           Transaction
+	TransactionExpireDate time.Time
 }
 
-func parseConnectResponse(data []byte,transactionId uint32) (connectionId []byte, err error) {
+type TrackerClient struct {
+	Trackers sync.Map
+}
+
+
+func parseConnectResponse(data []byte, transactionId uint32) (connectionId []byte, err error) {
 	if len(data) != 16 {
 		err = fmt.Errorf("response size malformed :%d", len(data))
 		return
 	}
 	action := binary.BigEndian.Uint32(data[:4])
-	if  action != connectAction {
+	if action != connectAction {
 		err = fmt.Errorf("action id should be connect : %d", action)
 		return
 	}
@@ -41,6 +47,15 @@ func parseConnectResponse(data []byte,transactionId uint32) (connectionId []byte
 		return
 	}
 	connectionId = data[8:]
+	return
+}
+
+func getConnectBytes() (response []byte, connectionId uint32) {
+	response = make([]byte, 16)
+	binary.BigEndian.PutUint64(response, magicNumber)
+	binary.BigEndian.PutUint32(response[8:12], connectAction)
+	connectionId = rand.Uint32()
+	binary.BigEndian.PutUint32(response[12:], connectionId)
 	return
 }
 
