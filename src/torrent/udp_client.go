@@ -7,7 +7,6 @@ import (
 	"net"
 	"sync"
 	"time"
-	"net/url"
 )
 
 const (
@@ -29,7 +28,6 @@ type TrackerState struct {
 type TrackerClient struct {
 	Trackers sync.Map
 }
-
 
 func parseConnectResponse(data []byte, transactionId uint32) (connectionId []byte, err error) {
 	if len(data) != 16 {
